@@ -30,9 +30,9 @@ export function Sidebar() {
             const Icon = item.icon;
             return (
               <Link key={item.name} href={item.href}>
-                <a
+                <div
                   className={cn(
-                    "flex items-center space-x-3 p-3 rounded-lg transition-colors",
+                    "flex items-center space-x-3 p-3 rounded-lg transition-colors cursor-pointer",
                     item.current
                       ? "bg-secondary text-secondary-foreground"
                       : "hover:bg-secondary/50"
@@ -41,7 +41,7 @@ export function Sidebar() {
                 >
                   <Icon className="w-5 h-5" />
                   <span className={item.current ? "font-medium" : ""}>{item.name}</span>
-                </a>
+                </div>
               </Link>
             );
           })}
