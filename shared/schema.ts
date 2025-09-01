@@ -1,37 +1,34 @@
-import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, jsonb, boolean, integer } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
-});
+// Local storage types (no database tables needed)
+export interface User {
+  id: string;
+  username: string;
+  password: string;
+}
 
-export const tweets = pgTable("tweets", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id),
-  prompt: text("prompt").notNull(),
-  content: text("content").notNull(),
-  style: jsonb("style").$type<{
-    tone: "professional" | "autonomous";
-    length: "concise" | "expanded";
-    includeEmojis: boolean;
-  }>().notNull(),
-  characterCount: integer("character_count").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+export interface Tweet {
+  id: string;
+  userId?: string;
+  prompt: string;
+  content: string;
+  style: TweetStyle;
+  characterCount: number;
+  createdAt: string;
+}
 
-export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
-});
+export interface InsertUser {
+  username: string;
+  password: string;
+}
 
-export const insertTweetSchema = createInsertSchema(tweets).omit({
-  id: true,
-  createdAt: true,
-});
+export interface InsertTweet {
+  userId?: string;
+  prompt: string;
+  content: string;
+  style: TweetStyle;
+  characterCount: number;
+}
 
 export const tweetStyleSchema = z.object({
   tone: z.enum(["professional", "autonomous"]),
@@ -44,9 +41,5 @@ export const generateTweetSchema = z.object({
   style: tweetStyleSchema,
 });
 
-export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
-export type InsertTweet = z.infer<typeof insertTweetSchema>;
-export type Tweet = typeof tweets.$inferSelect;
 export type TweetStyle = z.infer<typeof tweetStyleSchema>;
 export type GenerateTweetRequest = z.infer<typeof generateTweetSchema>;
