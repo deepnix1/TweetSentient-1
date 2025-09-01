@@ -210,8 +210,60 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 }
 
+// In-memory storage for server-side
+export class MemoryStorage implements StorageAdapter {
+  private store: Map<string, any> = new Map();
+  private tweets: any[] = [];
+
+  async get(key: string): Promise<any> {
+    return this.store.get(key);
+  }
+
+  async set(key: string, value: any): Promise<void> {
+    if (key === 'tweet') {
+      this.tweets.push({ ...value, timestamp: Date.now() });
+    } else {
+      this.store.set(key, value);
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    if (key === 'tweet') {
+      const index = this.tweets.findIndex(t => t.id === key);
+      if (index !== -1) {
+        this.tweets.splice(index, 1);
+      }
+    } else {
+      this.store.delete(key);
+    }
+  }
+
+  async clear(): Promise<void> {
+    this.store.clear();
+    this.tweets = [];
+  }
+
+  async keys(): Promise<string[]> {
+    return Array.from(this.store.keys());
+  }
+
+  async getAllTweets(): Promise<any[]> {
+    return this.tweets;
+  }
+
+  async getTweetsBySentiment(sentiment: string): Promise<any[]> {
+    return this.tweets.filter(tweet => tweet.sentiment === sentiment);
+  }
+}
+
 // Storage factory
 export function createStorage(config: StorageConfig = defaultStorageConfig): StorageAdapter {
+  // On the server, always use MemoryStorage
+  if (typeof window === 'undefined') {
+    return new MemoryStorage();
+  }
+
+  // In the browser, use the configured storage type
   switch (config.type) {
     case 'indexeddb':
       return new IndexedDBStorage(config);
