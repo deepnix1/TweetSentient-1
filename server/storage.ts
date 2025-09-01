@@ -220,7 +220,7 @@ export class MemoryStorage implements StorageAdapter {
   }
 
   async set(key: string, value: any): Promise<void> {
-    if (key === 'tweet') {
+    if (key.startsWith('tweet-')) {
       this.tweets.push({ ...value, timestamp: Date.now() });
     } else {
       this.store.set(key, value);
@@ -228,7 +228,7 @@ export class MemoryStorage implements StorageAdapter {
   }
 
   async delete(key: string): Promise<void> {
-    if (key === 'tweet') {
+    if (key.startsWith('tweet-')) {
       const index = this.tweets.findIndex(t => t.id === key);
       if (index !== -1) {
         this.tweets.splice(index, 1);
