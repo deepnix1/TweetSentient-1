@@ -31,20 +31,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Store tweets in database (using a mock user for now)
+      // Store tweets in local storage (using a mock user for now)
       const mockUserId = "demo-user-id";
       const savedTweets: any[] = [];
       
       for (const tweetContent of agentResponse.tweets) {
         try {
-          const savedTweet = await storage.createTweet({
+          const tweetId = `tweet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const tweetData = {
+            id: tweetId,
             userId: mockUserId,
             prompt,
             content: tweetContent,
             style,
             characterCount: tweetContent.length,
-          });
-          savedTweets.push(savedTweet);
+            createdAt: new Date().toISOString(),
+            sentiment: 'neutral' // Default sentiment
+          };
+          
+          await storage.set(tweetId, tweetData);
+          savedTweets.push(tweetData);
         } catch (error) {
           console.error("Failed to save tweet:", error);
           // Continue with other tweets even if one fails to save
@@ -74,10 +80,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get recent tweets for history
   app.get("/api/tweets/history", async (req, res) => {
     try {
-      const mockUserId = "demo-user-id";
       const limit = parseInt(req.query.limit as string) || 10;
       
-      const recentTweets = await storage.getRecentTweets(mockUserId, limit);
+      // Get all tweets and sort by creation date
+      const allTweets = await storage.getAllTweets();
+      const recentTweets = allTweets
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .slice(0, limit);
       
       res.json({
         success: true,
@@ -95,9 +104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get generation stats
   app.get("/api/tweets/stats", async (req, res) => {
     try {
-      const mockUserId = "demo-user-id";
-      
-      const allTweets = await storage.getTweetsByUser(mockUserId);
+      const allTweets = await storage.getAllTweets();
       
       res.json({
         success: true,

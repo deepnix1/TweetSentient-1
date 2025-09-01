@@ -1,69 +1,228 @@
-import { type User, type InsertUser, type Tweet, type InsertTweet } from "@shared/schema";
+// Local storage configuration for browser-based data persistence
+// This replaces the external database dependency
 
-export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
-  createTweet(tweet: InsertTweet): Promise<Tweet>;
-  getTweetsByUser(userId: string, limit?: number): Promise<Tweet[]>;
-  getRecentTweets(userId: string, limit?: number): Promise<Tweet[]>;
+export interface StorageConfig {
+  type: 'indexeddb' | 'localstorage' | 'sessionstorage';
+  databaseName?: string;
+  version?: number;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User> = new Map();
-  private tweets: Map<string, Tweet> = new Map();
-  private userIdCounter = 1;
-  private tweetIdCounter = 1;
+export const defaultStorageConfig: StorageConfig = {
+  type: 'indexeddb',
+  databaseName: 'TweetSentientDB',
+  version: 1
+};
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+// Storage interface for different storage types
+export interface StorageAdapter {
+  get(key: string): Promise<any>;
+  set(key: string, value: any): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear(): Promise<void>;
+  keys(): Promise<string[]>;
+}
+
+// IndexedDB implementation (most powerful)
+export class IndexedDBStorage implements StorageAdapter {
+  private dbName: string;
+  private version: number;
+  private db: IDBDatabase | null = null;
+
+  constructor(config: StorageConfig) {
+    this.dbName = config.databaseName || 'TweetSentientDB';
+    this.version = config.version || 1;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    for (const [_, user] of this.users) {
-      if (user.username === username) {
-        return user;
-      }
+  async init(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, this.version);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve();
+      };
+      
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result;
+        
+        // Create object stores for different data types
+        if (!db.objectStoreNames.contains('tweets')) {
+          const tweetStore = db.createObjectStore('tweets', { keyPath: 'id', autoIncrement: true });
+          tweetStore.createIndex('timestamp', 'timestamp', { unique: false });
+          tweetStore.createIndex('sentiment', 'sentiment', { unique: false });
+        }
+        
+        if (!db.objectStoreNames.contains('userPreferences')) {
+          db.createObjectStore('userPreferences', { keyPath: 'key' });
+        }
+        
+        if (!db.objectStoreNames.contains('analytics')) {
+          const analyticsStore = db.createObjectStore('analytics', { keyPath: 'id', autoIncrement: true });
+          analyticsStore.createIndex('date', 'date', { unique: false });
+        }
+      };
+    });
+  }
+
+  async get(key: string): Promise<any> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets', 'userPreferences', 'analytics'], 'readonly');
+      const store = transaction.objectStore('tweets');
+      const request = store.get(key);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  async set(key: string, value: any): Promise<void> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets', 'userPreferences', 'analytics'], 'readwrite');
+      const store = transaction.objectStore('tweets');
+      const request = store.put({ id: key, ...value, timestamp: Date.now() });
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async delete(key: string): Promise<void> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets'], 'readwrite');
+      const store = transaction.objectStore('tweets');
+      const request = store.delete(key);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve();
+    });
+  }
+
+  async clear(): Promise<void> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets', 'userPreferences', 'analytics'], 'readwrite');
+      const tweetStore = transaction.objectStore('tweets');
+      const prefStore = transaction.objectStore('userPreferences');
+      const analyticsStore = transaction.objectStore('analytics');
+      
+      tweetStore.clear();
+      prefStore.clear();
+      analyticsStore.clear();
+      
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+    });
+  }
+
+  async keys(): Promise<string[]> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets'], 'readonly');
+      const store = transaction.objectStore('tweets');
+      const request = store.getAllKeys();
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result.map(key => key.toString()));
+    });
+  }
+
+  // Special methods for tweets
+  async getAllTweets(): Promise<any[]> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets'], 'readonly');
+      const store = transaction.objectStore('tweets');
+      const request = store.getAll();
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  async getTweetsBySentiment(sentiment: string): Promise<any[]> {
+    if (!this.db) await this.init();
+    
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['tweets'], 'readonly');
+      const store = transaction.objectStore('tweets');
+      const index = store.index('sentiment');
+      const request = index.getAll(sentiment);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+}
+
+// localStorage implementation (fallback)
+export class LocalStorageAdapter implements StorageAdapter {
+  async get(key: string): Promise<any> {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : null;
+    } catch (error) {
+      console.error('Error reading from localStorage:', error);
+      return null;
     }
-    return undefined;
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = `user-${this.userIdCounter++}`;
-    const user: User = {
-      id,
-      ...insertUser,
-    };
-    this.users.set(id, user);
-    return user;
+  async set(key: string, value: any): Promise<void> {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error writing to localStorage:', error);
+    }
   }
 
-  async createTweet(insertTweet: InsertTweet): Promise<Tweet> {
-    const id = `tweet-${this.tweetIdCounter++}`;
-    const tweet: Tweet = {
-      id,
-      userId: insertTweet.userId || null,
-      prompt: insertTweet.prompt,
-      content: insertTweet.content,
-      style: insertTweet.style,
-      characterCount: insertTweet.characterCount,
-      createdAt: new Date(),
-    };
-    this.tweets.set(id, tweet);
-    return tweet;
+  async delete(key: string): Promise<void> {
+    try {
+      localStorage.removeItem(key);
+    } catch (error) {
+      console.error('Error deleting from localStorage:', error);
+    }
   }
 
-  async getTweetsByUser(userId: string, limit = 50): Promise<Tweet[]> {
-    const userTweets = Array.from(this.tweets.values())
-      .filter(tweet => tweet.userId === userId)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, limit);
-    return userTweets;
+  async clear(): Promise<void> {
+    try {
+      localStorage.clear();
+    } catch (error) {
+      console.error('Error clearing localStorage:', error);
+    }
   }
 
-  async getRecentTweets(userId: string, limit = 10): Promise<Tweet[]> {
-    return this.getTweetsByUser(userId, limit);
+  async keys(): Promise<string[]> {
+    try {
+      return Object.keys(localStorage);
+    } catch (error) {
+      console.error('Error getting localStorage keys:', error);
+      return [];
+    }
   }
 }
 
-export const storage = new MemStorage();
+// Storage factory
+export function createStorage(config: StorageConfig = defaultStorageConfig): StorageAdapter {
+  switch (config.type) {
+    case 'indexeddb':
+      return new IndexedDBStorage(config);
+    case 'localstorage':
+      return new LocalStorageAdapter();
+    case 'sessionstorage':
+      return new LocalStorageAdapter(); // Use localStorage as fallback
+    default:
+      return new LocalStorageAdapter();
+  }
+}
+
+// Export default storage instance
+export const storage = createStorage();
